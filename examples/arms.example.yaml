@@ -1,0 +1,39 @@
+# One arm = one way of producing a review. Everything that should change between arms (model, effort,
+# prompt, tool version) goes in the arm's cmd/env. Keep everything else identical.
+#
+# cmd placeholders: {repo} {base} {head} {out} {pr_url}. It runs inside the PR checkout and must write a
+# review file to {out}. ${VAR} is read from your environment, so keys never live in this file.
+
+judge:                       # scores every arm; any OpenAI-compatible endpoint
+  base_url: ${JUDGE_BASE_URL}
+  api_key: ${JUDGE_API_KEY}
+  models: [judge-model-a, judge-model-b]   # two families, so one judge's bias does not decide the result
+
+baseline: current
+
+arms:
+  # A CLI reviewer whose JSON the kit already understands (normalize: ocr).
+  current:
+    cmd: "ocr review --from {base} --to {head} --format json --output {out}"
+    normalize: ocr
+    env:
+      OCR_LLM_URL: ${CURRENT_LLM_URL}
+      OCR_LLM_TOKEN: ${CURRENT_LLM_TOKEN}
+      OCR_LLM_MODEL: current-model
+      OCR_USE_ANTHROPIC: "false"
+    price: {input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: 0.2}
+
+  candidate-medium:
+    cmd: "ocr review --from {base} --to {head} --effort medium --format json --output {out}"
+    normalize: ocr
+    env:
+      OCR_LLM_URL: ${CANDIDATE_LLM_URL}
+      OCR_LLM_TOKEN: ${CANDIDATE_LLM_TOKEN}
+      OCR_LLM_MODEL: candidate-model
+      OCR_USE_ANTHROPIC: "true"
+    price: {input_per_mtok: 3.0, output_per_mtok: 15.0, cache_read_per_mtok: 0.3}
+
+  # Any other reviewer: wrap it in a script that prints the generic format (see docs/formats.md).
+  my-script:
+    cmd: "./examples/fake_arm.sh {repo} {base} {head} {out}"
+    normalize: generic

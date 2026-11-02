@@ -1,0 +1,36 @@
+[project]
+name = "review-bench-kit"
+version = "0.1.0"
+description = "Measure any code-review bot or model/effort setting on public benchmarks and live PRs, and gate a switch on the numbers."
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6",
+    # needed by the pinned Martian scorer (steps 2, 2.5, 3)
+    "openai>=1.10.0",
+    "aiohttp>=3.9.0",
+    "requests>=2.32.5",
+    "tqdm>=4.66.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0", "ruff>=0.6.0"]
+
+[project.scripts]
+rbk = "rbk.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["rbk"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+ignore = ["PLW1510", "RUF059"]

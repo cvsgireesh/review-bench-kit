@@ -1,0 +1,14 @@
+# Write this BEFORE running, so the numbers cannot choose the rule.
+# Differences are candidate minus baseline with a 95% paired-bootstrap interval over PRs.
+# SWITCH only if every `require` rule passes under every judge and (when listed) one `any_superior` passes.
+
+require:
+  - {metric: recall,      better: higher, margin: 0.03}   # may not lose more than 3 points of recall
+  - {metric: precision,   better: higher, margin: 0.03}
+  - {metric: recall_high, better: higher, margin: 0.0}    # high/critical findings may not get worse
+  - {metric: comments_per_pr, better: lower, margin_pct: 0.5}   # no more than 50% extra comments (noise guard)
+
+any_superior:          # a switch needs a reason: one of these must improve with the interval excluding zero
+  - {metric: cost_usd_per_pr, better: lower}
+  - {metric: seconds_per_pr,  better: lower}
+  - {metric: f1,              better: higher}
