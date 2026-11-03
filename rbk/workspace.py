@@ -55,3 +55,8 @@ def checkout(url: str, root: Path) -> dict:
         _git(wt, "checkout", "--quiet", "--force", head)
         _git(wt, "clean", "-fdxq")
     return {"repo": str(wt), "base": base, "head": head, "pr_url": url}
+
+
+def result_files(d: Path) -> list[Path]:
+    """The r<k>.json result files of one PR and arm (arms may leave other files beside them)."""
+    return sorted((f for f in d.glob("r*.json") if re.fullmatch(r"r\d+", f.stem)), key=lambda f: int(f.stem[1:]))

@@ -12,13 +12,9 @@ What review-bot teams publish about changing model or effort, and how this kit f
 | Several judge families; state limits (product not model, static data, gold capped at human recall) | Martian methodology | `judge.models` is a list; verdict needs every judge |
 | Never trust a self-run benchmark | Greptile's 82% vs an independent rerun at 45% | pin the scorer commit; pre-write `decision.yaml` |
 
-## Other public benchmarks (not wired in)
+## Datasets
 
-| Benchmark | Size | Notes |
-|---|---|---|
-| [ReviewBench](https://github.blog/ai-and-ml/github-copilot/reviewbench-an-open-benchmark-for-ai-code-review/) | 219 PRs | self-serve runner takes a container image; license not stated in the post |
-| [SWE-PRBench](https://arxiv.org/abs/2603.26130) | 350 PRs | [dataset](https://huggingface.co/datasets/foundry-ai/swe-prbench), [harness](https://github.com/FoundryHQ-AI/swe-prbench) (MIT); harness prompts raw models, so an adapter must feed it your reviewer's comments |
-| [SWR-Bench](https://arxiv.org/abs/2509.01494) | 1,000 Python PRs | [repo](https://github.com/ZZR0/SWRench) (MIT); judge reads a predictions jsonl of `{instance_id, review}`; needs the repo at `base_commit` plus the PR diff |
-| [c-CRAB](https://arxiv.org/abs/2603.23448) | 410 instances | [dataset](https://github.com/c-CRAB-Benchmark/dataset); passes only if a coding agent's fix passes tests derived from human comments, so it is the most expensive |
+All wired in as `--dataset` (see the README table): Martian, [ReviewBench](https://github.com/review-bench/ReviewBench), [SWE-PRBench](https://arxiv.org/abs/2603.26130), [SWR-Bench](https://arxiv.org/abs/2509.01494) and [c-CRAB](https://arxiv.org/abs/2603.23448).
+Each loader in `rbk/datasets.py` maps the dataset's ground truth to golden findings (`comment`, `severity`) per PR; the same pinned Martian judge steps then score every dataset. That makes scores comparable across datasets inside this kit, but they are not the datasets' own leaderboard numbers: ReviewBench uses its own judge and matcher, SWE-PRBench its rubric, c-CRAB executes tests. Use them to compare your arms, not to publish a leaderboard score.
 
-To add one: write `rbk/<name>.py` with `pr_urls()`/`export()`/`score()` that return the same normalized samples `compare.samples` reads.
+To add a dataset, write a loader returning `{pr_url: {"pr_title", "source_repo", "golden_comments": [{"comment", "severity"}], "golden_source_file"}}` and register it in `datasets.load`.

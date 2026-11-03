@@ -33,7 +33,7 @@ def samples(root: Path, evaluations: Path, arms: list[str]) -> dict[str, dict[st
         out[arm] = {}
         for url, reps in per_pr.items():
             row = {k: sum(r[k] for r in reps) / len(reps) for k in reps[0]}
-            runs = [json.loads(f.read_text()) for f in (root / "runs" / arm / workspace.slug(url)).glob("r*.json")]
+            runs = [json.loads(f.read_text()) for f in workspace.result_files(root / "runs" / arm / workspace.slug(url))]
             runs = [r for r in runs if r["status"] == "ok"]
             if runs:
                 row["seconds"] = sum(r["seconds"] for r in runs) / len(runs)
@@ -47,7 +47,7 @@ def samples(root: Path, evaluations: Path, arms: list[str]) -> dict[str, dict[st
 def error_counts(root: Path, arms: list[str]) -> dict[str, tuple[int, int]]:
     res = {}
     for a in arms:
-        files = list((root / "runs" / a).glob("*/r*.json"))
+        files = [f for d in sorted((root / "runs" / a).glob("*")) for f in workspace.result_files(d)]
         res[a] = (sum(1 for f in files if json.loads(f.read_text())["status"] != "ok"), len(files))
     return res
 

@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from rbk import compare, live, martian, normalize, runner, stats, workspace
+from rbk import collect, compare, datasets, judge_proxy, live, martian, normalize, runner, stats, workspace
 
 
 def test_normalize_ocr_maps_fields_and_usage():
@@ -65,6 +65,8 @@ def test_samples_average_repeats_and_read_usage(tmp_path):
         f.write_text(json.dumps({"status": "ok", "seconds": secs, "usage": {"input_tokens": 100, "output_tokens": 0, "cost_usd": 1}}))
     ev = tmp_path / "e.json"
     ev.write_text(json.dumps({url: {"A": _eval_entry("A", 2, 1, 1), "A@r2": _eval_entry("A@r2", 0, 3, 3)}}))
+    (f.parent / "r1.rawout.claude.json").write_text("{}")  # an arm's sidecar must not be read as a run
+    assert compare.error_counts(tmp_path, ["A"]) == {"A": (0, 2)}
     s = compare.samples(tmp_path, ev, ["A"])["A"][url]
     assert (s["tp"], s["fp"], s["fn"]) == (1, 2, 2) and s["tp_high"] == 1 and s["seconds"] == 20
 
@@ -77,6 +79,7 @@ def test_martian_export_writes_one_tool_per_repeat(tmp_path, monkeypatch):
         f = tmp_path / "runs" / "A" / workspace.slug(url) / f"r{k}.json"
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps({"status": "ok", "comments": [{"path": "a", "line": 1, "body": "b"}]}))
+    (tmp_path / "runs" / "A" / workspace.slug(url) / "r1.rawout.claude.json").write_text("{}")  # arm sidecar file
     bad = tmp_path / "runs" / "A" / workspace.slug(url) / "r3.json"
     bad.write_text(json.dumps({"status": "error", "comments": []}))
     (tmp_path / "third_party/code-review-benchmark/offline/golden_comments").mkdir(parents=True)
@@ -152,3 +155,70 @@ def test_live_compare_detects_a_real_difference():
     res = live.compare(mk(1), mk(3), boots=300)
     m = res["metrics"]["accepted_rate"]
     assert m["diff"] == pytest.approx(0.5) and m["ci"][0] > 0
+
+
+def _write_jsonl(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+
+
+def test_swr_adapter_maps_pr_url_and_keeps_clean_prs(tmp_path):
+    change = {"change_type": "F.2 Logic", "change_introducing": {"code_snippet": "a/b.py\n@@ -1 +1 @@"},
+              "change_discussion": {"discussion_summary": "off by one"}}
+    _write_jsonl(tmp_path / "third_party/swr/data/swr_datasets_d5c5.jsonl", [
+        {"repo": "o/r", "instance_id": "o__r-12", "pr_title": "bug", "changes": [change]},
+        {"repo": "o/r", "instance_id": "o__r-13", "pr_title": "clean", "changes": []}])
+    d = datasets.load("swr", tmp_path)
+    assert d["https://github.com/o/r/pull/12"]["golden_comments"][0]["comment"] == "a/b.py: off by one"
+    assert d["https://github.com/o/r/pull/13"]["golden_comments"] == []
+
+
+def test_ccrab_adapter_survives_unicode_line_separators(tmp_path):
+    _write_jsonl(tmp_path / "third_party/ccrab/results_preprocessed/preprocess_dataset.jsonl", [
+        {"repo": "o/r", "pull_number": 7, "title": "t", "reference_review_comments": [{"path": "x.py", "text": "a b"}]}])
+    d = datasets.load("ccrab", tmp_path)
+    assert d["https://github.com/o/r/pull/7"]["golden_comments"][0]["comment"] == "x.py: a b"
+
+
+def test_reviewbench_adapter_keeps_only_true_positives_with_severity(tmp_path):
+    base = tmp_path / "third_party/reviewbench"
+    (base / "corpus").mkdir(parents=True)
+    (base / "golden").mkdir()
+    pr = {"repo": "https://github.com/o/r", "pr_number": 5, "pr_url": "https://github.com/o/r/pull/5", "head": "abcdef0123", "title": "t"}
+    (base / "corpus/manifest.json").write_text(json.dumps([pr]))
+    findings = [{"file": "a.py", "start_line": 3, "message": "real", "tp_fp": "tp", "severity": "high"},
+                {"file": "b.py", "start_line": 1, "message": "not real", "tp_fp": "fp", "severity": "low"}]
+    (base / "golden/o_r_5-abcdef01.json").write_text(json.dumps({"findings": findings}))
+    gold = datasets.load("reviewbench", tmp_path)["https://github.com/o/r/pull/5"]["golden_comments"]
+    assert [(g["comment"], g["severity"]) for g in gold] == [("a.py:3: real", "High")]
+
+
+def test_unknown_dataset_and_missing_sources_are_errors(tmp_path):
+    with pytest.raises(SystemExit):
+        datasets.load("nope", tmp_path)
+    with pytest.raises(SystemExit):
+        datasets.load("swr", tmp_path)  # sources not cloned yet
+
+
+def test_collect_fetch_filters_by_login_and_wait_refuses_empty(monkeypatch):
+    def fake(path):
+        who = {"login": "my-bot[bot]"}
+        if path.endswith("/comments") and "pulls" in path:
+            return [{"user": who, "path": "a.py", "line": None, "original_line": 4, "body": "bug"},
+                    {"user": {"login": "human"}, "path": "a.py", "line": 1, "body": "hi"}]
+        if path.endswith("/reviews"):
+            return [{"user": who, "body": "summary"}, {"user": who, "body": ""}]
+        return []
+
+    monkeypatch.setattr(collect, "_gh", fake)
+    got = collect.fetch("https://github.com/o/r/pull/1", {"my-bot"})
+    assert got == [{"path": "a.py", "line": 4, "body": "bug"}, {"path": "", "line": 0, "body": "summary"}]
+    monkeypatch.setattr(collect, "_gh", lambda p: [])
+    with pytest.raises(TimeoutError):  # a bot that never ran is a failure, not an empty review
+        collect.wait("https://github.com/o/r/pull/1", {"my-bot"}, timeout=0, quiet=0, poll=0)
+
+
+def test_proxy_parses_tool_calls_and_ignores_plain_text():
+    calls = judge_proxy._parse_tool_calls('```json\n{"tool_calls": [{"name": "read", "arguments": {"path": "a"}}]}\n```')
+    assert calls[0]["function"] == {"name": "read", "arguments": '{"path": "a"}'}
+    assert judge_proxy._parse_tool_calls("Looks fine to me.") is None

@@ -37,3 +37,9 @@ arms:
   my-script:
     cmd: "./examples/fake_arm.sh {repo} {base} {head} {out}"
     normalize: generic
+
+  # Claude Code CLI as the reviewer (subscription or API key); model and effort are the only differences between arms.
+  claude-sonnet-medium:
+    cmd: "./examples/claude_arm.sh {repo} {base} {head} {out}"   # use an absolute path: arms run inside the PR checkout
+    normalize: generic
+    env: {CLAUDE_MODEL: sonnet, CLAUDE_EFFORT: medium}

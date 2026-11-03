@@ -52,14 +52,15 @@ def tool_name(arm: str, rep: int) -> str:
     return arm if rep == 1 else f"{arm}@r{rep}"
 
 
-def export(root: Path, arms: list[str], work: Path) -> Path:
-    """Write work/results/benchmark_data.json with one 'tool' per arm and repeat."""
-    data = dataset(root)
+def export(root: Path, arms: list[str], work: Path, data: dict | None = None) -> Path:
+    """Write work/results/benchmark_data.json with one 'tool' per arm and repeat. `data` is any dataset
+    in the shape `rbk.datasets` returns (default: the Martian benchmark)."""
+    data = {u: dict(e) for u, e in (data if data is not None else dataset(root)).items()}
     for url, entry in data.items():
         entry["reviews"] = []
         o, r, n = workspace.parse_pr_url(url)
         for arm in arms:
-            for f in sorted((root / "runs" / arm / workspace.slug(url)).glob("r*.json")):
+            for f in workspace.result_files(root / "runs" / arm / workspace.slug(url)):
                 res = json.loads(f.read_text())
                 if res["status"] != "ok":
                     continue
